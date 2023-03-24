@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "backend"
+version = "0.1.0"
+description = ""
+authors = ["Andrei Polyakov <ap120368@gmail.com>"]
+readme = "README.md"
+
+[tool.black]
+line-length = 79
+
+[tool.poetry.dependencies]
+python = ">=3.8.1,<4.0"
+fastapi = "^0.95.0"
+uvicorn = {extras = ["standard"], version = "^0.21.1"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.7"}
+asyncpg = "^0.27.0"
+alembic = "^1.10.2"
+pandas = "^1.5.3"
+celery = {extras = ["redis"], version = "^5.2.7"}
+
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^6.0.0"
+pep8-naming = "^0.13.3"
+flake8-return = "^1.2.0"
+flake8-isort = "^6.0.0"
+black = "^23.1.0"
+isort = "^5.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
