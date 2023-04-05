@@ -1,15 +1,17 @@
 import sqlalchemy as sa
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import INT8RANGE, ExcludeConstraint
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 
 class Operator(Base):
     __tablename__ = "operator"
-    inn = sa.Column(sa.BigInteger, primary_key=True)
+    id = sa.Column(sa.Integer, primary_key=True)
+    inn = sa.Column(sa.BigInteger, nullable=True)
     name = sa.Column(sa.String(150), nullable=False)
     phones = relationship("Phone", back_populates="operator")
+    __table_args__ = (sa.UniqueConstraint("inn", "name", name="inn_mame_uc"),)
 
 
 class Region(Base):
@@ -25,13 +27,18 @@ class Region(Base):
 
 class Phone(Base):
     __tablename__ = "phone"
-    prefix = sa.Column(sa.Integer, nullable=False, default=0)
-    start = sa.Column(sa.Integer, nullable=False, default=0)
-    end = sa.Column(sa.Integer, nullable=False, default=0)
-    operator_inn = sa.Column(sa.BigInteger, sa.ForeignKey(Operator.inn))
+    id = sa.Column(sa.Integer, primary_key=True)
+    range = sa.Column(INT8RANGE, nullable=False)
+    # prefix = sa.Column(sa.Integer, nullable=False, default=0)
+    # start = sa.Column(sa.Integer, nullable=False, default=0)
+    # end = sa.Column(sa.Integer, nullable=False, default=0)
+    operator_id = sa.Column(sa.BigInteger, sa.ForeignKey(Operator.id))
     region_id = sa.Column(sa.Integer, sa.ForeignKey(Region.id))
     operator = relationship("Operator", back_populates="phones")
     region = relationship("Region", back_populates="phones")
     __table_args__ = (
-        sa.PrimaryKeyConstraint("prefix", "start", "end", name="phone_pk"),
+        ExcludeConstraint(
+            ("range", "&&"),
+        ),
+        # sa.PrimaryKeyConstraint("prefix", "start", "end", name="phone_pk"),
     )

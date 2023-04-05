@@ -3,6 +3,7 @@ from pydantic import BaseSettings
 
 class Settings(BaseSettings):
     postgres_db: str
+    test_postgres_db: str
     postgres_host: str
     postgres_port: str
     postgres_user: str

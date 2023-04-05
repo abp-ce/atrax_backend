@@ -14,9 +14,7 @@ async def get_info(
     phone_num: str, session: AsyncSession = Depends(get_session)
 ):
     try:
-        result = await crud.get_info(
-            session, int(phone_num[1:4]), int(phone_num[4:11])
-        )
+        result = await crud.get_info(session, int(phone_num[1:11]))
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

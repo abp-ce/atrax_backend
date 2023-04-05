@@ -8,6 +8,13 @@ readme = "README.md"
 [tool.black]
 line-length = 79
 
+[tool.pytest.ini_options]
+pythonpath = [
+  ".", "app",
+]
+asyncio_mode="auto"
+filterwarnings = ["ignore:SelectableGroups dict interface is deprecated. Use select.:DeprecationWarning"]
+
 [tool.poetry.dependencies]
 python = ">=3.8.1,<4.0"
 fastapi = "^0.95.0"
@@ -26,6 +33,9 @@ flake8-return = "^1.2.0"
 flake8-isort = "^6.0.0"
 black = "^23.1.0"
 isort = "^5.12.0"
+pytest = "^7.2.2"
+pytest-asyncio = "^0.21.0"
+flower = "^1.2.0"
 
 [build-system]
 requires = ["poetry-core"]
