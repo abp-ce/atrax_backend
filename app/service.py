@@ -2,13 +2,16 @@ import asyncio
 import logging
 import ssl
 
+import httpx
 import numpy as np
 import pandas as pd
+import redis
 from sqlalchemy.dialects.postgresql import Range
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from . import crud
+from .config import settings
 
 CHUNK_SIZE = 1000
 PREFIX_MP = 10000000  # multiplier
@@ -27,6 +30,35 @@ class Parse:
     def __init__(self, engine: AsyncEngine):
         self.engine = engine
         self.conn = None
+
+    @staticmethod
+    def filter_remote_urls(db: int = 0) -> list:
+        r = redis.StrictRedis(
+            host=settings.redis_host,
+            encoding="utf-8",
+            decode_responses=True,
+            db=db,
+        )
+        remote_urls = []
+        with httpx.Client(verify=False) as client:
+            for url in Parse.REMOTE_URLS:
+                response = client.head(url)
+                if response.headers["ETag"] != r.get(url):
+                    r.set(url, response.headers["ETag"])
+                    r.persist(url)
+                    remote_urls.append(url)
+        return remote_urls
+
+    @staticmethod
+    def clear_redis(db: int = 0) -> list:
+        r = redis.StrictRedis(
+            host=settings.redis_host,
+            encoding="utf-8",
+            decode_responses=True,
+            db=db,
+        )
+        for url in Parse.REMOTE_URLS:
+            r.delete(url)
 
     def __get_operator_values(self, chunk: pd.DataFrame) -> list[dict]:
         chunk["ИНН"] = chunk["ИНН"].replace(np.nan, None)
@@ -76,17 +108,15 @@ class Parse:
             )
         ]
 
-    async def _delete_file_data(self, num: str | int):
-        str_keys = ["3", "4", "8", "9"]
-        int_keys = [0, 1, 2, 3]
+    async def _delete_file_data(self, file_name: str):
         ranges = [
             Range(3000000000, 4000000000),
             Range(4000000000, 5000000000),
             Range(8000000000, 9000000000),
             Range(9000000000, 10000000000),
         ]
-        nums_ranges = dict(zip(str_keys, ranges)) | dict(zip(int_keys, ranges))
-        await crud.delete_range(self.conn, nums_ranges[num])
+        nums_ranges = dict(zip(self.REMOTE_URLS, ranges))
+        await crud.delete_range(self.conn, nums_ranges[file_name])
 
     async def _process_chunk(self, chunk: pd.DataFrame):
         await crud.upsert_operators(
@@ -95,18 +125,11 @@ class Parse:
         await crud.upsert_regions(self.conn, self.__get_region_values(chunk))
         await crud.upsert_phones(self.conn, self.__get_phone_values(chunk))
 
-    async def parse_csv(self, file: int | str) -> None:
-        max_num = len(self.REMOTE_URLS) - 1
-        is_file_int = type(file) == int
-        if is_file_int and file > max_num:
-            logging.info(f"Допустимые значения от 0 до {max_num}")
-            return
+    async def parse_csv(self, file_name: str) -> None:
         ssl._create_default_https_context = ssl._create_unverified_context
-        file_name = self.REMOTE_URLS[file] if is_file_int else file
         async with self.engine.connect() as self.conn:
             try:
-                if is_file_int:
-                    await self._delete_file_data(file)
+                await self._delete_file_data(file_name)
                 for chunk in pd.read_csv(
                     file_name,
                     sep=";",
@@ -119,6 +142,9 @@ class Parse:
                 logging.warning(f"Ошибка в обработке файла: {err}")
                 await self.conn.rollback()
 
-    async def parse_all_csv(self) -> None:
-        tasks = [self.parse_csv(i) for i in range(len(self.REMOTE_URLS))]
+    async def parse_all_csv(self, is_filtered: bool = False) -> None:
+        files_to_parse = (
+            self.filter_remote_urls() if is_filtered else self.REMOTE_URLS
+        )
+        tasks = [self.parse_csv(file_name) for file_name in files_to_parse]
         await asyncio.gather(*tasks)

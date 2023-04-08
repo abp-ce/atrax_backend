@@ -44,7 +44,15 @@ async def test_range_removing():
     before = await get_count(Phone)
     parse = Parse(engine_test)
     async with engine_test.connect() as parse.conn:
-        await parse._delete_file_data("4")
+        await parse._delete_file_data(Parse.REMOTE_URLS[1])
         await parse.conn.commit()
     after = await get_count(Phone)
     assert (before - after) == 3, f"Ошибка: было {before}, стало {after}."
+
+
+# Redis stuff
+async def test_etags():
+    Parse.clear_redis(1)
+    test_remote_urls = Parse.filter_remote_urls(1)
+    assert len(test_remote_urls) == len(Parse.REMOTE_URLS)
+    Parse.clear_redis(1)

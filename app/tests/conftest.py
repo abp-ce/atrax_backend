@@ -1,15 +1,27 @@
 import asyncio
+from typing import AsyncGenerator
 
 import pandas as pd
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
-from ...main import app
 from ..config import settings
 from ..dependencies import get_session
 from ..models import Base
+from ..router import router
+
+GOOD_NUM = "79703500007"
+NUM_NOT_IN_BASE = "79374382838"
+BAD_NUM_NOT_REGEX = ["797035a0007", "797035000", "7970350000701"]
+EMPTY_NUM = ""
+
+app = FastAPI()
+app.include_router(router)
 
 engine_test = create_async_engine(
     "postgresql+asyncpg://{}:{}@{}:{}/{}".format(
@@ -36,6 +48,7 @@ async def override_get_session() -> AsyncSession:
 
 
 app.dependency_overrides[get_session] = override_get_session
+client = TestClient(app)
 
 
 @pytest.fixture(scope="session")
@@ -67,3 +80,9 @@ def divided_test_data() -> pd.DataFrame:
 @pytest.fixture
 def united_test_data() -> pd.DataFrame:
     return pd.read_csv("./app/tests/data/united_test_data.csv", sep=";")
+
+
+@pytest.fixture(scope="session")
+async def ac() -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(app=app, base_url="http://test/api/") as ac:
+        yield ac

@@ -29,9 +29,6 @@ class Phone(Base):
     __tablename__ = "phone"
     id = sa.Column(sa.Integer, primary_key=True)
     range = sa.Column(INT8RANGE, nullable=False)
-    # prefix = sa.Column(sa.Integer, nullable=False, default=0)
-    # start = sa.Column(sa.Integer, nullable=False, default=0)
-    # end = sa.Column(sa.Integer, nullable=False, default=0)
     operator_id = sa.Column(sa.BigInteger, sa.ForeignKey(Operator.id))
     region_id = sa.Column(sa.Integer, sa.ForeignKey(Region.id))
     operator = relationship("Operator", back_populates="phones")
@@ -40,5 +37,4 @@ class Phone(Base):
         ExcludeConstraint(
             ("range", "&&"),
         ),
-        # sa.PrimaryKeyConstraint("prefix", "start", "end", name="phone_pk"),
     )
