@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import crud
 from .dependencies import get_session
-from .service import Parse
 from .schemas import PhoneInfo
+from .service import Parse
 from .tasks import celery_parse, celery_parse_all_csv
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -32,8 +32,9 @@ async def get_info(
 @router.get("/parse/{file_num}", status_code=status.HTTP_202_ACCEPTED)
 async def parse(
     file_num: int = Path(..., ge=0, lt=len(Parse.REMOTE_URLS)),
+    is_filtered: bool = False,
 ):
-    celery_parse.delay(Parse.REMOTE_URLS[file_num])
+    celery_parse.delay(Parse.REMOTE_URLS[file_num], is_filtered)
     return {"message": "Parse queued"}
 
 

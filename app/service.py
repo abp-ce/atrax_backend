@@ -1,4 +1,6 @@
-import asyncio
+"""Реализация класса Parse,который парсит и загружает в базу данных
+csv файл в формате Реестра российской системы и плана нумерации.
+"""
 import logging
 import ssl
 
@@ -20,6 +22,10 @@ logging.basicConfig(level=logging.INFO)
 
 
 class Parse:
+    """Парсит и загружает в базу данных csv файл в формате
+    Реестра российской системы и плана нумерации.
+    """
+
     REMOTE_URLS = [
         "https://opendata.digital.gov.ru/downloads/ABC-3xx.csv",
         "https://opendata.digital.gov.ru/downloads/ABC-4xx.csv",
@@ -27,30 +33,72 @@ class Parse:
         "https://opendata.digital.gov.ru/downloads/DEF-9xx.csv",
     ]
 
-    def __init__(self, engine: AsyncEngine):
+    def __init__(self, engine: AsyncEngine) -> None:
+        """Метод конструктора
+
+        :param engine: Асинхронный engine базы данных
+        :type engine: AsyncEngine
+        """
         self.engine = engine
         self.conn = None
 
     @staticmethod
-    def filter_remote_urls(db: int = 0) -> list:
+    def get_file_etag(url: str) -> str:
+        """Получает ETag файла по url
+
+        :param url: url файла
+        :type url: str
+        :return: ETag файла
+        :rtype: str
+        """
+        response = httpx.head(url, verify=False)
+        return response.headers["ETag"]
+
+    @staticmethod
+    def get_redis_etag(url: str, db: int = 0) -> str:
+        """Получает ETag, сохранённый в Redis
+
+        :param url: url-ключ файла
+        :type url: str
+        :param db: Номер базы в Redis, defaults to 0
+        :type db: int, optional
+        :return: ETag файла
+        :rtype: str
+        """
         r = redis.StrictRedis(
             host=settings.redis_host,
             encoding="utf-8",
             decode_responses=True,
             db=db,
         )
-        remote_urls = []
-        with httpx.Client(verify=False) as client:
-            for url in Parse.REMOTE_URLS:
-                response = client.head(url)
-                if response.headers["ETag"] != r.get(url):
-                    r.set(url, response.headers["ETag"])
-                    r.persist(url)
-                    remote_urls.append(url)
-        return remote_urls
+        return r.get(url)
 
     @staticmethod
-    def clear_redis(db: int = 0) -> list:
+    def set_redis_etag(url: str, etag: str, db: int = 0) -> None:
+        """Сохраняет ETag в Redis
+
+        :param url: url-ключ файла
+        :type url: str
+        :param etag: ETag для сохранения
+        :type etag: str
+        :param db: Номер базы в Redis, defaults to 0
+        :type db: int, optional
+        """
+        r = redis.StrictRedis(
+            host=settings.redis_host,
+            encoding="utf-8",
+            decode_responses=True,
+            db=db,
+        )
+        r.set(url, etag)
+
+    @staticmethod
+    def clear_redis(db: int = 0) -> None:
+        """Чистит ключи url в Redis.
+
+        :param db: Номер базы в Redis, defaults to 0
+        :type db: int, optional
+        """
         r = redis.StrictRedis(
             host=settings.redis_host,
             encoding="utf-8",
@@ -61,6 +109,13 @@ class Parse:
             r.delete(url)
 
     def __get_operator_values(self, chunk: pd.DataFrame) -> list[dict]:
+        """Готовит данные для пакетной загрузки в таблицу Operator
+
+        :param chunk: исходные данные
+        :type chunk: pd.DataFrame
+        :return: данные для загрузки
+        :rtype: list[dict]
+        """
         chunk["ИНН"] = chunk["ИНН"].replace(np.nan, None)
         values_set = set(
             [(x, y) for x, y in zip(chunk["ИНН"], chunk["Оператор"])]
@@ -68,6 +123,13 @@ class Parse:
         return [{"inn": x, "name": y} for x, y in values_set]
 
     def __get_region_values(self, chunk: pd.DataFrame) -> list[dict]:
+        """Готовит данные для пакетной загрузки в таблицу Region
+
+        :param chunk: исходные данные
+        :type chunk: pd.DataFrame
+        :return: данные для загрузки
+        :rtype: list[dict]
+        """
         values_set = set(
             [
                 tuple(x)
@@ -82,6 +144,13 @@ class Parse:
         ]
 
     def __get_phone_values(self, chunk: pd.DataFrame) -> list[dict]:
+        """Готовит данные для пакетной загрузки в таблицу Phone
+
+        :param chunk: исходные данные
+        :type chunk: pd.DataFrame
+        :return: данные для загрузки
+        :rtype: list[dict]
+        """
         return [
             {
                 "range": Range(
@@ -109,6 +178,11 @@ class Parse:
         ]
 
     async def _delete_file_data(self, file_name: str):
+        """Удаляет в базе данных данные файла, который будет загружаться.
+
+        :param file_name: имя или url файла для загрузки
+        :type file_name: str
+        """
         ranges = [
             Range(3000000000, 4000000000),
             Range(4000000000, 5000000000),
@@ -119,13 +193,28 @@ class Parse:
         await crud.delete_range(self.conn, nums_ranges[file_name])
 
     async def _process_chunk(self, chunk: pd.DataFrame):
+        """Грузит порцию данных из файла в базу данных
+
+        :param chunk: Порция исходных данных
+        :type chunk: pd.DataFrame
+        """
         await crud.upsert_operators(
             self.conn, self.__get_operator_values(chunk)
         )
         await crud.upsert_regions(self.conn, self.__get_region_values(chunk))
         await crud.upsert_phones(self.conn, self.__get_phone_values(chunk))
 
-    async def parse_csv(self, file_name: str) -> None:
+    async def parse_csv(
+        self, file_name: str, is_filtered: bool = False
+    ) -> None:
+        """Парсит и загружает данные из csv файла в базу данных
+
+        :param file_name: имя или url файла для загрузки
+        :type file_name: str
+        """
+        etag = self.get_file_etag(file_name)
+        if is_filtered and etag == self.get_redis_etag(file_name):
+            return
         ssl._create_default_https_context = ssl._create_unverified_context
         async with self.engine.connect() as self.conn:
             try:
@@ -138,13 +227,7 @@ class Parse:
                 ):
                     await self._process_chunk(chunk)
                 await self.conn.commit()
+                self.set_redis_etag(file_name, etag)
             except DBAPIError as err:
                 logging.warning(f"Ошибка в обработке файла: {err}")
                 await self.conn.rollback()
-
-    async def parse_all_csv(self, is_filtered: bool = False) -> None:
-        files_to_parse = (
-            self.filter_remote_urls() if is_filtered else self.REMOTE_URLS
-        )
-        tasks = [self.parse_csv(file_name) for file_name in files_to_parse]
-        await asyncio.gather(*tasks)

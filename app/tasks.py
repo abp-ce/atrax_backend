@@ -20,13 +20,13 @@ celery.conf.beat_schedule = {
 
 
 @celery.task
-def celery_parse(file_name: str):
-    asyncio.run(Parse(engine).parse_csv(file_name))
+def celery_parse(file_name: str, is_filtered: bool = False):
+    asyncio.run(Parse(engine).parse_csv(file_name, is_filtered))
 
 
 @celery.task
 def celery_parse_all_csv(is_filtered: bool = False):
-    files_to_parse = (
-        Parse.filter_remote_urls() if is_filtered else Parse.REMOTE_URLS
-    )
-    group(celery_parse.s(file_name) for file_name in files_to_parse)()
+    group(
+        celery_parse.s(file_name, is_filtered)
+        for file_name in Parse.REMOTE_URLS
+    )()
